@@ -80,7 +80,7 @@ export async function generatePhaseZero(habilidadeCodigo: string) {
   return response?.text || "";
 }
 
-export async function generateLessonPlan(habilidadeCodigo: string, planoNumero: number, contextoAnterior?: string) {
+export async function generateLessonPlan(habilidadeCodigo: string, planoNumero: number, contextoAnterior?: string, disciplinasIntegradas?: string) {
   const skill = bnccSkills.find(s => s.codigo === habilidadeCodigo);
   const year = skill?.ano || "Ano não especificado";
   const eixo = skill?.eixo || "Eixo não especificado";
@@ -100,6 +100,7 @@ export async function generateLessonPlan(habilidadeCodigo: string, planoNumero: 
   
   Baseie-se no documento oficial "Complemento à BNCC de Computação".
   ${contextoAnterior ? `Considere o que foi planejado anteriormente nesta sequência: ${contextoAnterior.substring(0, 1000)}` : ""}
+  ${disciplinasIntegradas ? `INTEGRAÇÃO INTERDISCIPLINAR: Este plano deve ser integrado com as seguintes disciplinas: ${disciplinasIntegradas}. Mostre claramente como os conceitos de Computação se conectam com estas áreas de forma significativa.` : ""}
 
   IMPORTANTE: Este é o plano ${planoNumero} de uma sequência de 5 planos progressivos. A linguagem das atividades e a complexidade dos conceitos devem ser RIGOROSAMENTE APROPRIADAS para o ${year}, seguindo uma lógica de complexidade crescente.
   
@@ -109,6 +110,7 @@ export async function generateLessonPlan(habilidadeCodigo: string, planoNumero: 
   * Eixo: ${eixo}
   * Ano escolar: ${year}
   * Tempo estimado
+  ${disciplinasIntegradas ? `* Disciplinas Integradas: ${disciplinasIntegradas}` : ""}
 
   ## Objetivos de aprendizagem
 

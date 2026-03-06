@@ -23,10 +23,13 @@ import {
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { marked } from 'marked';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface PlanData {
   id: number;
   habilidade_codigo: string;
+  ano_escolar: string | null;
+  eixo: string | null;
   fase_zero: string | null;
   plano_01: string | null;
   plano_02: string | null;
@@ -48,7 +51,21 @@ export default function PlanGenerator() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState(0); // 0: Fase 0, 1-5: Planos
   const [showSidebar, setShowSidebar] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState('');
+  const [selectedDisciplines, setSelectedDisciplines] = useState<string[]>([]);
   const printRef = useRef<HTMLDivElement>(null);
+
+  const disciplinesList = [
+    'Língua Portuguesa', 'Matemática', 'Ciências', 'História', 'Geografia', 
+    'Artes', 'Educação Física', 'Inglês', 'Ensino Religioso'
+  ];
+
+  const toggleDiscipline = (disc: string) => {
+    setSelectedDisciplines(prev => 
+      prev.includes(disc) ? prev.filter(d => d !== disc) : [...prev, disc]
+    );
+  };
 
   const fetchPlan = async () => {
     try {
@@ -112,7 +129,12 @@ export default function PlanGenerator() {
         if (!currentPlan[key]) {
           setGenerationStatus(`Gerando Plano de Aula ${i} de 5...`);
           const prevContent = i === 1 ? currentPlan.fase_zero : currentPlan[`plano_0${i-1}` as keyof PlanData] as string;
-          const content = await generateLessonPlan(currentPlan.habilidade_codigo, i, prevContent);
+          const content = await generateLessonPlan(
+            currentPlan.habilidade_codigo, 
+            i, 
+            prevContent, 
+            selectedDisciplines.length > 0 ? selectedDisciplines.join(', ') : undefined
+          );
           currentPlan = await updatePlan(`plano_0${i}`, content, i) || currentPlan;
           setActiveTab(i);
         }
@@ -143,7 +165,12 @@ export default function PlanGenerator() {
         const faseZero = await generatePhaseZero(plan.habilidade_codigo);
         
         setGenerationStatus('Gerando Primeiro Plano de Aula...');
-        const plano01 = await generateLessonPlan(plan.habilidade_codigo, 1, faseZero);
+        const plano01 = await generateLessonPlan(
+          plan.habilidade_codigo, 
+          1, 
+          faseZero,
+          selectedDisciplines.length > 0 ? selectedDisciplines.join(', ') : undefined
+        );
         
         // Update both in DB
         await updatePlan('fase_zero', faseZero, 0); // Keep at 0 to show Fase 0 first
@@ -156,7 +183,12 @@ export default function PlanGenerator() {
 
         setGenerationStatus(`Gerando Plano de Aula ${nextNum}...`);
         const prevContent = plan[`plano_0${plan.plano_atual}` as keyof PlanData] as string;
-        const nextContent = await generateLessonPlan(plan.habilidade_codigo, nextNum, prevContent);
+        const nextContent = await generateLessonPlan(
+          plan.habilidade_codigo, 
+          nextNum, 
+          prevContent,
+          selectedDisciplines.length > 0 ? selectedDisciplines.join(', ') : undefined
+        );
         
         await updatePlan(`plano_0${nextNum}`, nextContent, nextNum);
         setActiveTab(nextNum);
@@ -248,11 +280,15 @@ export default function PlanGenerator() {
       });
       
       if (response.ok) {
+        const safeAno = (plan.ano_escolar || 'Ano').replace(/[^a-z0-9]/gi, '_');
+        const safeEixo = (plan.eixo || 'Eixo').replace(/[^a-z0-9]/gi, '_');
+        const filename = `Planejamento_${safeAno}_${safeEixo}_${plan.habilidade_codigo}.docx`;
+        
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `Relatorio_Avanca_Pariconha_Escola_2025.docx`;
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -277,11 +313,15 @@ export default function PlanGenerator() {
       });
       
       if (response.ok) {
+        const safeAno = (plan.ano_escolar || 'Ano').replace(/[^a-z0-9]/gi, '_');
+        const safeEixo = (plan.eixo || 'Eixo').replace(/[^a-z0-9]/gi, '_');
+        const filename = `Planejamento_${safeAno}_${safeEixo}_${plan.habilidade_codigo}.pdf`;
+
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `Planejamento_Profissional_${plan.habilidade_codigo}.pdf`;
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -294,6 +334,19 @@ export default function PlanGenerator() {
     } finally {
       setIsExporting(false);
     }
+  };
+
+  const handleEdit = () => {
+    if (!plan) return;
+    setEditedContent(String(currentContent || ''));
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!plan) return;
+    const field = activeTab === 0 ? 'fase_zero' : `plano_0${activeTab}`;
+    await updatePlan(field, editedContent, plan.plano_atual);
+    setIsEditing(false);
   };
 
   if (loading) return (
@@ -314,63 +367,67 @@ export default function PlanGenerator() {
   const progressPercent = (plan.plano_atual / 5) * 100;
 
   return (
-    <div className="min-h-screen bg-zinc-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-zinc-50 flex flex-col font-sans selection:bg-indigo-100">
       {/* Header */}
-      <header className="bg-white border-b border-zinc-200 sticky top-0 z-50">
+      <header className="bg-white/80 backdrop-blur-md border-b border-zinc-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button 
               onClick={() => setShowSidebar(!showSidebar)}
-              className="lg:hidden p-2 hover:bg-zinc-100 rounded-lg transition-colors text-zinc-500"
+              className="lg:hidden p-2.5 hover:bg-zinc-100 rounded-xl transition-colors text-zinc-500 active:scale-95"
             >
-              {showSidebar ? <X size={20} /> : <Menu size={20} />}
+              {showSidebar ? <X size={22} /> : <Menu size={22} />}
             </button>
-            <div className="bg-indigo-600 p-2 rounded-lg text-white">
+            <motion.div 
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-indigo-600 p-2 rounded-xl text-white shadow-lg shadow-indigo-200"
+            >
               <BookOpen size={20} />
-            </div>
-            <div>
+            </motion.div>
+            <div className="hidden sm:block">
               <h1 className="text-lg font-bold text-zinc-900 tracking-tight">BNCC IA</h1>
             </div>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
-            <div className="hidden sm:flex items-center gap-2 bg-zinc-100 px-3 py-1.5 rounded-lg border border-zinc-200">
+            <div className="hidden md:flex items-center gap-2 bg-zinc-100/50 p-1 rounded-xl border border-zinc-200/50">
               <button 
                 onClick={handlePrint}
-                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm hover:shadow-md" title="Imprimir">
-                <Printer size={16} />
+                className="flex items-center gap-2 px-3 py-2 hover:bg-white text-zinc-700 rounded-lg text-xs font-bold transition-all hover:shadow-sm" title="Imprimir">
+                <Printer size={16} className="text-blue-600" />
                 <span>Imprimir</span>
               </button>
               
               <button 
                 onClick={handleDownloadPDF}
                 disabled={isExporting}
-                className={`flex items-center gap-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm hover:shadow-md disabled:opacity-50 ${isExporting ? 'animate-pulse' : ''}`} title="Baixar PDF">
-                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                className={`flex items-center gap-2 px-3 py-2 hover:bg-white text-zinc-700 rounded-lg text-xs font-bold transition-all hover:shadow-sm disabled:opacity-50 ${isExporting ? 'animate-pulse' : ''}`} title="Baixar PDF">
+                {isExporting ? <Loader2 size={16} className="animate-spin text-green-600" /> : <Download size={16} className="text-green-600" />}
                 <span>PDF</span>
               </button>
 
               <button 
                 onClick={handleDownloadWord}
                 disabled={isExportingWord}
-                className={`flex items-center gap-2 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm hover:shadow-md disabled:opacity-50 ${isExportingWord ? 'animate-pulse' : ''}`} title="Baixar Word">
-                {isExportingWord ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                className={`flex items-center gap-2 px-3 py-2 hover:bg-white text-zinc-700 rounded-lg text-xs font-bold transition-all hover:shadow-sm disabled:opacity-50 ${isExportingWord ? 'animate-pulse' : ''}`} title="Baixar Word">
+                {isExportingWord ? <Loader2 size={16} className="animate-spin text-violet-600" /> : <FileText size={16} className="text-violet-600" />}
                 <span>Word</span>
               </button>
             </div>
 
-            <div className="h-6 w-px bg-zinc-200 mx-1"></div>
+            <div className="h-6 w-px bg-zinc-200 mx-1 hidden sm:block"></div>
 
             <div className="flex items-center gap-1">
               <button 
                 onClick={() => navigate('/')}
-                className="p-2 text-zinc-500 hover:text-indigo-600 hover:bg-zinc-100 rounded-lg transition-colors" title="Dashboard">
-                <LayoutDashboard size={20} />
+                className="p-2.5 text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all active:scale-95" title="Dashboard">
+                <LayoutDashboard size={22} />
               </button>
               <button 
                 onClick={logout}
-                className="p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Sair">
-                <LogOut size={20} />
+                className="p-2.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all active:scale-95" title="Sair">
+                <LogOut size={22} />
               </button>
             </div>
           </div>
@@ -442,6 +499,35 @@ export default function PlanGenerator() {
             </nav>
           </div>
 
+          {/* Interdisciplinary Integration */}
+          <div className="bg-white rounded-2xl p-6 border border-zinc-200 shadow-sm">
+            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-4">Integração Interdisciplinar</h3>
+            <p className="text-[10px] text-zinc-500 mb-3 italic">Selecione disciplinas para integrar ao plano:</p>
+            <div className="flex flex-wrap gap-2">
+              {disciplinesList.map(disc => (
+                <button
+                  key={disc}
+                  onClick={() => toggleDiscipline(disc)}
+                  className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all border ${
+                    selectedDisciplines.includes(disc)
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-zinc-50 text-zinc-600 border-zinc-200 hover:border-indigo-300'
+                  }`}
+                >
+                  {disc}
+                </button>
+              ))}
+            </div>
+            {selectedDisciplines.length > 0 && (
+              <button 
+                onClick={() => setSelectedDisciplines([])}
+                className="mt-4 text-[10px] font-bold text-red-500 hover:text-red-700 underline"
+              >
+                Limpar Seleção
+              </button>
+            )}
+          </div>
+
           {/* Additional Resources */}
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Recursos Extras</h3>
@@ -475,48 +561,93 @@ export default function PlanGenerator() {
 
         {/* Content Area */}
         <section className="lg:col-span-3 space-y-6">
-          {generating && (
-            <div className="bg-indigo-600 rounded-2xl p-6 text-white shadow-lg shadow-indigo-200 animate-pulse flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="bg-white/20 p-3 rounded-xl">
-                  <Loader2 className="animate-spin" size={24} />
+          <AnimatePresence mode="wait">
+            {generating && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="bg-indigo-600 rounded-2xl p-6 text-white shadow-xl shadow-indigo-100 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="bg-white/20 p-3 rounded-xl backdrop-blur-sm">
+                      <Loader2 className="animate-spin" size={24} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-lg">Gerando Planejamento Inteligente</h4>
+                      <p className="text-indigo-100 text-sm">{generationStatus}</p>
+                    </div>
+                  </div>
+                  <div className="hidden sm:block">
+                    <div className="text-right">
+                      <span className="text-xs font-bold uppercase tracking-widest opacity-60">Status</span>
+                      <p className="font-mono text-sm">Processando via Gemini AI</p>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="font-bold text-lg">Gerando Planejamento Inteligente</h4>
-                  <p className="text-indigo-100 text-sm">{generationStatus}</p>
-                </div>
-              </div>
-              <div className="hidden sm:block">
-                <div className="text-right">
-                  <span className="text-xs font-bold uppercase tracking-widest opacity-60">Status</span>
-                  <p className="font-mono text-sm">Processando via Gemini AI</p>
-                </div>
-              </div>
-            </div>
-          )}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {error && (
-            <div className="bg-red-50 border border-red-100 text-red-600 p-4 rounded-2xl flex items-center gap-3">
+            <motion.div 
+              initial={{ x: -20, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              className="bg-red-50 border border-red-100 text-red-600 p-4 rounded-2xl flex items-center gap-3 shadow-sm"
+            >
               <AlertCircle size={20} />
               <p className="text-sm font-medium">{error}</p>
-            </div>
+            </motion.div>
           )}
 
-          <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 overflow-hidden min-h-[600px] flex flex-col">
-            <div className="border-b border-zinc-100 p-6 bg-zinc-50/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="bg-white rounded-3xl shadow-xl shadow-zinc-200/50 border border-zinc-200 overflow-hidden min-h-[600px] flex flex-col">
+            <div className="border-b border-zinc-100 p-6 bg-zinc-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-lg font-bold text-zinc-900">
+                <motion.h2 
+                  key={activeTab}
+                  initial={{ y: 5, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  className="text-xl font-bold text-zinc-900"
+                >
                   {activeTab === 0 ? 'Fundamentação Teórica' : activeTab === 6 ? 'Visualização Completa do Planejamento' : `Plano 0${activeTab}`}
-                </h2>
-                <p className="text-xs text-zinc-500 font-mono mt-1">Habilidade: {plan.habilidade_codigo}</p>
+                </motion.h2>
+                <p className="text-xs text-zinc-400 font-bold uppercase tracking-wider mt-1">Habilidade: {plan.habilidade_codigo}</p>
               </div>
               
               <div className="flex flex-wrap gap-2">
+                {currentContent && activeTab !== 6 && !isEditing && (
+                  <button
+                    onClick={handleEdit}
+                    className="flex-1 sm:flex-none bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
+                  >
+                    <PlusCircle size={16} className="rotate-45" />
+                    Editar
+                  </button>
+                )}
+
+                {isEditing && (
+                  <>
+                    <button
+                      onClick={() => setIsEditing(false)}
+                      className="flex-1 sm:flex-none bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleSaveEdit}
+                      className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-200 active:scale-95"
+                    >
+                      Salvar
+                    </button>
+                  </>
+                )}
+
                 {plan.plano_atual === 0 && !plan.fase_zero && (
                   <button
                     onClick={generateAll}
                     disabled={generating}
-                    className="flex-1 sm:flex-none bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-sm disabled:opacity-50"
+                    className="flex-1 sm:flex-none bg-zinc-900 hover:bg-zinc-800 text-white px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-zinc-200 active:scale-95 disabled:opacity-50"
                   >
                     {generating ? (
                       <Loader2 className="animate-spin" size={16} />
@@ -531,7 +662,7 @@ export default function PlanGenerator() {
                   <button
                     onClick={generateNext}
                     disabled={generating}
-                    className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-sm shadow-indigo-100 disabled:opacity-50"
+                    className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-200 active:scale-95 disabled:opacity-50"
                   >
                     {generating ? (
                       <Loader2 className="animate-spin" size={16} />
@@ -544,7 +675,7 @@ export default function PlanGenerator() {
               </div>
             </div>
 
-            <div className="p-4 md:p-8 flex-1 overflow-auto prose prose-blue max-w-none prose-sm md:prose-base" ref={printRef}>
+            <div className="p-6 md:p-10 flex-1 overflow-auto prose prose-indigo max-w-none prose-sm md:prose-base" ref={printRef}>
               {/* Print Header */}
               <div className="hidden print:block mb-8 border-b-2 border-[#112240] pb-4">
                 <div className="flex justify-between items-start">
@@ -563,7 +694,14 @@ export default function PlanGenerator() {
                 </div>
               </div>
 
-              {currentContent ? (
+              {isEditing ? (
+                <textarea
+                  value={editedContent}
+                  onChange={(e) => setEditedContent(e.target.value)}
+                  className="w-full h-[500px] p-4 border border-zinc-200 rounded-xl font-mono text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                  placeholder="Edite o conteúdo aqui..."
+                />
+              ) : currentContent ? (
                 <div className="markdown-body">
                   <Markdown>{String(currentContent)}</Markdown>
                 </div>

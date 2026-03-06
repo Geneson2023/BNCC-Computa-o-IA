@@ -59,6 +59,7 @@ export default function SettingsPage() {
     assinatura_digital: '',
     config_exportacao: '{"include_fase_zero": true, "include_planos": true, "resumida": false}'
   });
+  const [usersList, setUsersList] = useState<any[]>([]);
   const [setLoading, setSetLoading] = useState(false);
   const [setSuccess, setSetSuccess] = useState(false);
   const [setError, setSetError] = useState('');
@@ -91,7 +92,22 @@ export default function SettingsPage() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      if (data) setSettings(data);
+      if (data) {
+        const { users, ...rest } = data;
+        // Ensure no null/undefined values for controlled inputs
+        const sanitizedSettings = {
+          secretaria_nome: data.secretaria_nome ?? '',
+          municipio_nome: data.municipio_nome ?? '',
+          estado_nome: data.estado_nome ?? '',
+          logo_prefeitura: data.logo_prefeitura ?? '',
+          logo_secretaria: data.logo_secretaria ?? '',
+          nome_secretario: data.nome_secretario ?? '',
+          assinatura_digital: data.assinatura_digital ?? '',
+          config_exportacao: data.config_exportacao ?? '{"include_fase_zero": true, "include_planos": true, "resumida": false}'
+        };
+        setSettings(sanitizedSettings);
+        if (users) setUsersList(users);
+      }
     } catch (err) {
       console.error('Erro ao carregar configurações');
     }
@@ -421,6 +437,48 @@ export default function SettingsPage() {
 
         {/* User Registration */}
         <div className="space-y-8">
+          {/* Users List */}
+          <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 overflow-hidden">
+            <div className="p-6 border-b border-zinc-100 bg-zinc-50/30">
+              <div className="flex items-center gap-4">
+                <div className="bg-indigo-50 p-2.5 rounded-xl text-indigo-600">
+                  <UserIcon size={24} />
+                </div>
+                <h2 className="text-lg font-bold text-zinc-900">Usuários Cadastrados</h2>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-zinc-50 border-b border-zinc-100">
+                    <th className="px-6 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest">Nome</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest">Email</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest">Perfil</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest">Escola</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-50">
+                  {usersList.map((u) => (
+                    <tr key={u.id} className="hover:bg-zinc-50/50 transition-colors">
+                      <td className="px-6 py-4 text-sm font-bold text-zinc-900">{u.nome}</td>
+                      <td className="px-6 py-4 text-sm text-zinc-500">{u.email}</td>
+                      <td className="px-6 py-4">
+                        <span className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-tighter ${
+                          u.perfil === 'Gestor' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' :
+                          u.perfil === 'Coordenador' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                          'bg-zinc-100 text-zinc-600 border border-zinc-200'
+                        }`}>
+                          {u.perfil}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-zinc-500">{u.escola}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 overflow-hidden">
             <div className="p-6 border-b border-zinc-100 bg-zinc-50/30">
               <div className="flex items-center gap-4">

@@ -5,6 +5,10 @@ import RegisterPage from './pages/RegisterPage';
 import Dashboard from './pages/Dashboard';
 import PlanGenerator from './pages/PlanGenerator';
 import SettingsPage from './pages/SettingsPage';
+import LandingPage from './pages/LandingPage';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import TestDrive from './pages/TestDrive';
+import GuestPlanGenerator from './pages/GuestPlanGenerator';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
@@ -16,10 +20,14 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/privacidade" element={<PrivacyPolicy />} />
+          <Route path="/test-drive" element={<TestDrive />} />
+          <Route path="/plan-test/:id" element={<GuestPlanGenerator />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route 
-            path="/" 
+            path="/dashboard" 
             element={
               <ProtectedRoute>
                 <Dashboard />
@@ -42,6 +50,7 @@ export default function App() {
               </ProtectedRoute>
             } 
           />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

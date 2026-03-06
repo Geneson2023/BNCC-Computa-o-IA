@@ -42,6 +42,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
+    guest_id TEXT,
     habilidade_codigo TEXT NOT NULL,
     ano_escolar TEXT,
     eixo TEXT,
@@ -53,7 +54,7 @@ db.exec(`
     plano_05 TEXT,
     plano_atual INTEGER DEFAULT 0,
     concluido BOOLEAN DEFAULT FALSE,
-    FOREIGN KEY(user_id) REFERENCES users(id)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS settings (
@@ -89,7 +90,14 @@ try {
   const hasEixo = columns.some((col: any) => col.name === 'eixo');
   if (!hasEixo) {
     db.prepare("ALTER TABLE plans ADD COLUMN eixo TEXT").run();
-    console.log("Column 'eixo' added to 'plans' table.");
+  }
+  const hasGuestId = columns.some((col: any) => col.name === 'guest_id');
+  if (!hasGuestId) {
+    db.prepare("ALTER TABLE plans ADD COLUMN guest_id TEXT").run();
+  }
+  const hasCreatedAt = columns.some((col: any) => col.name === 'created_at');
+  if (!hasCreatedAt) {
+    db.prepare("ALTER TABLE plans ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP").run();
   }
 } catch (err) {
   console.error("Migration error (plans):", err);
@@ -191,26 +199,81 @@ app.get("/api/plans/:id", authenticateToken, (req: any, res) => {
 
 app.post("/api/plans/delete", authenticateToken, (req: any, res) => {
   const { ids, all } = req.body;
+  const userId = req.user.id;
+  
   try {
     if (all) {
-      db.prepare("DELETE FROM plans WHERE user_id = ?").run(req.user.id);
-    } else if (Array.isArray(ids) && ids.length > 0) {
-      const placeholders = ids.map(() => "?").join(",");
-      db.prepare(`DELETE FROM plans WHERE user_id = ? AND id IN (${placeholders})`).run(req.user.id, ...ids);
-    } else {
-      return res.status(400).json({ error: "Nenhum ID fornecido para exclusão" });
+      const result = db.prepare("DELETE FROM plans WHERE user_id = ?").run(userId);
+      return res.json({ success: true, deleted: result.changes });
+    } 
+    
+    if (Array.isArray(ids) && ids.length > 0) {
+      const numericIds = ids.map(id => Number(id)).filter(id => !isNaN(id));
+      if (numericIds.length > 0) {
+        const placeholders = numericIds.map(() => "?").join(",");
+        const result = db.prepare(`DELETE FROM plans WHERE user_id = ? AND id IN (${placeholders})`).run(userId, ...numericIds);
+        return res.json({ success: true, deleted: result.changes });
+      }
     }
+    
+    res.status(400).json({ error: "Nenhum ID válido fornecido para exclusão" });
+  } catch (err) {
+    console.error('Error deleting plans:', err);
+    res.status(500).json({ error: "Erro interno ao excluir planejamentos" });
+  }
+});
+
+// Guest Plan Routes
+app.post("/api/guest/plans/start", (req, res) => {
+  const { habilidade_codigo, ano_escolar, eixo, guest_id } = req.body;
+  
+  if (!guest_id) return res.status(400).json({ error: "Guest ID is required" });
+
+  // Check limit
+  const count = db.prepare("SELECT COUNT(*) as count FROM plans WHERE guest_id = ?").get(guest_id) as any;
+  if (count.count >= 2) {
+    return res.status(403).json({ error: "Limite de 2 planos para teste atingido. Cadastre-se para continuar!" });
+  }
+
+  const stmt = db.prepare("INSERT INTO plans (guest_id, habilidade_codigo, ano_escolar, eixo, plano_atual) VALUES (?, ?, ?, ?, 0)");
+  const info = stmt.run(guest_id, habilidade_codigo, ano_escolar, eixo);
+  res.json({ id: info.lastInsertRowid });
+});
+
+app.get("/api/guest/plans/:id", (req, res) => {
+  const { guest_id } = req.query;
+  const plan = db.prepare("SELECT * FROM plans WHERE id = ? AND guest_id = ?").get(req.params.id, guest_id);
+  if (!plan) return res.status(404).json({ error: "Plano não encontrado" });
+  res.json(plan);
+});
+
+app.post("/api/guest/plans/update", (req, res) => {
+  const { id, field, content, next_plano, guest_id } = req.body;
+  
+  const allowedFields = ['fase_zero', 'plano_01', 'plano_02', 'plano_03', 'plano_04', 'plano_05', 'concluido'];
+  if (!allowedFields.includes(field)) {
+    return res.status(400).json({ error: "Campo inválido" });
+  }
+
+  try {
+    const stmt = db.prepare(`UPDATE plans SET ${field} = ?, plano_atual = ? WHERE id = ? AND guest_id = ?`);
+    const result = stmt.run(content, next_plano, id, guest_id);
+    if (result.changes === 0) return res.status(404).json({ error: "Plano não encontrado ou guest_id inválido" });
     res.json({ success: true });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Erro ao excluir planejamentos" });
+    res.status(500).json({ error: "Erro ao atualizar plano" });
   }
 });
 
 // Settings Routes
 app.get("/api/settings", authenticateToken, (req: any, res) => {
   const settings = db.prepare("SELECT * FROM settings WHERE id = 1").get();
-  res.json(settings);
+  let users: any[] = [];
+  if (req.user.perfil === 'Gestor') {
+    users = db.prepare("SELECT id, nome, email, perfil, escola FROM users ORDER BY nome ASC").all();
+  }
+  res.json({ ...settings, users });
 });
 
 app.post("/api/settings", authenticateToken, (req: any, res) => {
@@ -273,8 +336,7 @@ async function generatePlanHTML(plan: any, settings: any, user: any) {
   if (config.include_fase_zero && plan.fase_zero) {
     sections.push({ 
       title: "Fundamentação Teórica", 
-      type: 'chapter',
-      chapterNum: 1,
+      type: 'foundation',
       content: plan.fase_zero 
     });
   }
@@ -304,6 +366,11 @@ async function generatePlanHTML(plan: any, settings: any, user: any) {
     `
   });
 
+  // Pre-parse markdown for all sections
+  for (const section of sections) {
+    section.parsedContent = await marked.parse(section.content || '');
+  }
+
   const toc = sections.map((s, i) => `
     <li class="toc-item">
       <span class="toc-title">${s.title}</span>
@@ -312,23 +379,12 @@ async function generatePlanHTML(plan: any, settings: any, user: any) {
     </li>
   `).join('');
 
-  // Helper to safely parse markdown
-  const parseMarkdown = (content: string) => {
-    try {
-      return marked.parse(content || '') as string;
-    } catch (e) {
-      console.error("Markdown parsing failed", e);
-      return content || '';
-    }
-  };
-
   return `
     <!DOCTYPE html>
     <html lang="pt-BR">
     <head>
       <meta charset="UTF-8">
       <title>Planejamento Pedagógico - ${plan.habilidade_codigo}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
       <style>
         :root {
           --primary: #1e1b4b;
@@ -346,12 +402,12 @@ async function generatePlanHTML(plan: any, settings: any, user: any) {
         }
 
         body { 
-          font-family: 'Inter', 'Helvetica', 'Arial', sans-serif; 
-          line-height: 1.6; 
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+          line-height: 1.5; 
           color: var(--text); 
           margin: 0; 
           padding: 0; 
-          font-size: 9pt; /* 12px */
+          font-size: 12pt; 
           background: white;
           -webkit-print-color-adjust: exact;
         }
@@ -406,6 +462,7 @@ async function generatePlanHTML(plan: any, settings: any, user: any) {
           align-items: center;
           gap: 40px; 
           margin-bottom: 0.8cm; 
+          height: 80px;
         }
         .capa-logos img { height: 70px; max-width: 220px; object-fit: contain; }
         
@@ -515,11 +572,10 @@ async function generatePlanHTML(plan: any, settings: any, user: any) {
         }
 
         .chapter-title {
-          margin-bottom: 1.5cm;
-          padding: 1cm;
+          margin-bottom: 1cm;
+          padding: 0.8cm;
           background: var(--secondary);
           border-radius: 12px;
-          border-left: 10px solid var(--primary);
         }
         .chapter-label {
           font-size: 12pt;
@@ -532,34 +588,33 @@ async function generatePlanHTML(plan: any, settings: any, user: any) {
         }
         .chapter-main-title {
           font-family: 'Playfair Display', serif;
-          font-size: 28pt;
+          font-size: 24pt;
           color: var(--primary);
           margin: 0;
           line-height: 1.2;
         }
 
         .lesson-plan-title {
-          font-size: 22pt;
+          font-size: 18pt;
           font-weight: 900;
           color: var(--primary);
-          margin-bottom: 1cm;
+          margin-bottom: 0.8cm;
           text-transform: uppercase;
-          border-bottom: 4px solid var(--accent);
           display: inline-block;
           padding-bottom: 5px;
         }
 
         .section-content {
           text-align: justify;
-          line-height: 1.7;
-          font-size: 9pt;
+          line-height: 1.5;
+          font-size: 12pt;
         }
         .section-content p {
           margin-bottom: 1em;
         }
-        .section-content h1 { font-size: 12pt; color: var(--primary); margin-top: 1.2cm; margin-bottom: 0.5cm; font-weight: 700; }
-        .section-content h2 { font-size: 10.5pt; color: var(--primary); margin-top: 1.2cm; margin-bottom: 0.5cm; font-weight: 700; border-left: 5px solid var(--accent); padding-left: 15px; }
-        .section-content h3 { font-size: 9pt; color: var(--accent); text-transform: uppercase; margin-top: 1.2cm; margin-bottom: 0.5cm; font-weight: 700; }
+        .section-content h1 { font-size: 14pt; color: var(--primary); margin-top: 1cm; margin-bottom: 0.4cm; font-weight: 700; }
+        .section-content h2 { font-size: 13pt; color: var(--primary); margin-top: 1cm; margin-bottom: 0.4cm; font-weight: 700; padding-left: 0; }
+        .section-content h3 { font-size: 12pt; color: var(--accent); text-transform: uppercase; margin-top: 1cm; margin-bottom: 0.4cm; font-weight: 700; }
         
         .section-content ul, .section-content ol {
           margin-bottom: 1em;
@@ -593,7 +648,7 @@ async function generatePlanHTML(plan: any, settings: any, user: any) {
 
         /* FINAL PAGE */
         .final-page {
-          height: 29.7cm;
+          min-height: 29.7cm;
           display: flex;
           flex-direction: column;
           justify-content: center;
@@ -691,18 +746,18 @@ async function generatePlanHTML(plan: any, settings: any, user: any) {
             <span>Habilidade ${plan.habilidade_codigo}</span>
           </div>
 
-          ${s.type === 'chapter' ? `
+          ${s.type === 'chapter' || s.type === 'foundation' ? `
             <div class="chapter-title">
               <h1 class="chapter-main-title">${s.title}</h1>
             </div>
           ` : s.type === 'lesson-plan' ? `
             <h1 class="lesson-plan-title">${s.title}</h1>
           ` : `
-            <h1 style="color: var(--primary); border-bottom: 2px solid var(--accent); padding-bottom: 10px; margin-bottom: 1cm; font-family: 'Playfair Display', serif;">${s.title}</h1>
+            <h1 style="color: var(--primary); padding-bottom: 10px; margin-bottom: 1cm; font-family: 'Playfair Display', serif;">${s.title}</h1>
           `}
 
           <div class="section-content">
-            ${parseMarkdown(s.content)}
+            ${s.parsedContent}
           </div>
         </div>
         <div class="page-break"></div>
@@ -749,16 +804,14 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
   const validationCode = crypto.createHash('sha256').update(`${year}-${user.id}`).digest('hex').substring(0, 12).toUpperCase();
   
   let qrCodeDataUrl = '';
+  // Disable QR code for batch generation to save time and memory
+  /*
   try {
     qrCodeDataUrl = await QRCode.toDataURL(`https://bncc-ia.app/validar/${validationCode}`);
   } catch (e) {
     console.error("QR Code generation failed", e);
   }
-
-  const parseMarkdown = (text: string) => {
-    if (!text) return "";
-    return marked.parse(text);
-  };
+  */
 
   const allSections: any[] = [];
   plans.forEach((plan) => {
@@ -770,9 +823,8 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
     
     if (plan.fase_zero) {
       allSections.push({ 
-        title: `Fundamentação Teórica (${plan.habilidade_codigo})`, 
-        type: 'chapter', 
-        chapterNum: 0, 
+        title: `Fundamentação Teórica`, 
+        type: 'foundation', 
         content: plan.fase_zero 
       });
     }
@@ -789,6 +841,34 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
     }
   });
 
+  // Add References at the end
+  allSections.push({
+    title: "Referências Bibliográficas",
+    type: 'standard',
+    content: `
+- BRASIL. Ministério da Educação. Base Nacional Comum Curricular. Brasília, 2018.
+- BRASIL. Complemento à BNCC: Computação. Brasília, 2022.
+- WING, J. M. Computational Thinking. Communications of the ACM, 2006.
+- SBC. Referenciais de Formação em Computação da Educação Básica. 2017.
+    `
+  });
+
+  console.log(`Total sections in yearly plan: ${allSections.length}`);
+
+  // Parallelize markdown parsing with a concurrency limit to avoid CPU spikes
+  const concurrencyLimit = 10;
+  for (let i = 0; i < allSections.length; i += concurrencyLimit) {
+    const chunk = allSections.slice(i, i + concurrencyLimit);
+    await Promise.all(chunk.map(async (section) => {
+      try {
+        section.parsedContent = await marked.parse(section.content || '');
+      } catch (e) {
+        console.error(`Error parsing markdown for section ${section.title}:`, e);
+        section.parsedContent = section.content || '';
+      }
+    }));
+  }
+
   const toc = allSections.map((s, i) => `
     <li class="toc-item">
       <span class="toc-title">${s.title}</span>
@@ -803,7 +883,6 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
     <head>
       <meta charset="UTF-8">
       <title>Currículo Anual - ${year}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
       <style>
         :root {
           --primary: #1e1b4b;
@@ -821,12 +900,12 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
         }
 
         body { 
-          font-family: 'Inter', 'Helvetica', 'Arial', sans-serif; 
-          line-height: 1.6; 
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+          line-height: 1.5; 
           color: var(--text); 
           margin: 0; 
           padding: 0; 
-          font-size: 9pt; /* 12px */
+          font-size: 12pt; /* ABNT Standard */
           background: white;
           -webkit-print-color-adjust: exact;
         }
@@ -881,6 +960,7 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
           align-items: center;
           gap: 40px; 
           margin-bottom: 0.8cm; 
+          height: 80px;
         }
         .capa-logos img { height: 70px; max-width: 220px; object-fit: contain; }
         
@@ -934,7 +1014,7 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
         .capa-footer strong { color: var(--primary); width: 140px; display: inline-block; }
 
         /* SUMÁRIO */
-        .toc { padding: 3cm 2.5cm; height: 29.7cm; box-sizing: border-box; }
+        .toc { padding: 3cm 2.5cm; min-height: 29.7cm; box-sizing: border-box; }
         .toc h2 { 
           font-family: 'Playfair Display', serif;
           font-size: 26pt; 
@@ -975,11 +1055,10 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
         }
 
         .chapter-title {
-          margin-bottom: 1.5cm;
-          padding: 1cm;
+          margin-bottom: 1cm;
+          padding: 0.8cm;
           background: var(--secondary);
           border-radius: 12px;
-          border-left: 10px solid var(--primary);
         }
         .chapter-label {
           font-size: 12pt;
@@ -992,7 +1071,7 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
         }
         .chapter-main-title {
           font-family: 'Playfair Display', serif;
-          font-size: 28pt;
+          font-size: 24pt;
           color: var(--primary);
           margin: 0;
           line-height: 1.2;
@@ -1001,34 +1080,33 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
         .skill-header-box {
           background: var(--primary);
           color: white;
-          padding: 1.5cm;
-          border-radius: 15px;
-          margin-bottom: 1.5cm;
+          padding: 1cm;
+          border-radius: 12px;
+          margin-bottom: 1cm;
         }
-        .skill-header-box h2 { margin: 0; font-size: 24pt; font-family: 'Playfair Display', serif; }
+        .skill-header-box h2 { margin: 0; font-size: 20pt; font-family: 'Playfair Display', serif; }
 
         .lesson-plan-title {
-          font-size: 22pt;
+          font-size: 18pt;
           font-weight: 900;
           color: var(--primary);
-          margin-bottom: 1cm;
+          margin-bottom: 0.8cm;
           text-transform: uppercase;
-          border-bottom: 4px solid var(--accent);
           display: inline-block;
           padding-bottom: 5px;
         }
 
         .section-content {
           text-align: justify;
-          line-height: 1.7;
-          font-size: 9pt;
+          line-height: 1.5;
+          font-size: 12pt;
         }
         .section-content p {
           margin-bottom: 1em;
         }
-        .section-content h1 { font-size: 12pt; color: var(--primary); margin-top: 1.2cm; margin-bottom: 0.5cm; font-weight: 700; }
-        .section-content h2 { font-size: 10.5pt; color: var(--primary); margin-top: 1.2cm; margin-bottom: 0.5cm; font-weight: 700; border-left: 5px solid var(--accent); padding-left: 15px; }
-        .section-content h3 { font-size: 9pt; color: var(--accent); text-transform: uppercase; margin-top: 1.2cm; margin-bottom: 0.5cm; font-weight: 700; }
+        .section-content h1 { font-size: 14pt; color: var(--primary); margin-top: 1cm; margin-bottom: 0.4cm; font-weight: 700; }
+        .section-content h2 { font-size: 13pt; color: var(--primary); margin-top: 1cm; margin-bottom: 0.4cm; font-weight: 700; padding-left: 0; }
+        .section-content h3 { font-size: 12pt; color: var(--accent); text-transform: uppercase; margin-top: 1cm; margin-bottom: 0.4cm; font-weight: 700; }
         
         .section-content ul, .section-content ol {
           margin-bottom: 1em;
@@ -1062,7 +1140,7 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
 
         /* FINAL PAGE */
         .final-page {
-          height: 29.7cm;
+          min-height: 29.7cm;
           display: flex;
           flex-direction: column;
           justify-content: center;
@@ -1123,6 +1201,26 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
         </div>
       </div>
       <div class="page-break"></div>
+ 
+      <!-- FOLHA DE ROSTO -->
+      <div class="folha-rosto">
+        <div class="rosto-header">
+          <h2 class="rosto-title">Currículo Anual de Computação</h2>
+        </div>
+        <p class="rosto-desc">
+          Este documento consolida o planejamento pedagógico anual para o componente de Computação, abrangendo todas as habilidades previstas na BNCC para o ${year}.
+        </p>
+        <p class="rosto-desc">
+          A organização aqui apresentada segue uma progressão lógica de competências, integrando o Pensamento Computacional, o Mundo Digital e a Cultura Digital de forma transversal e significativa.
+        </p>
+        <div class="rosto-obj">
+          <h3>Diretriz Curricular</h3>
+          <p>
+            "A integração da computação no currículo escolar visa preparar os estudantes para compreenderem e transformarem a realidade digital, desenvolvendo autonomia e criticidade."
+          </p>
+        </div>
+      </div>
+      <div class="page-break"></div>
 
       <div class="toc">
         <h2>SUMÁRIO DO ANO</h2>
@@ -1138,19 +1236,21 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
           </div>
 
           ${s.type === 'skill-header' ? `
-            <div class="skill-header">
+            <div class="skill-header-box">
               <h2>${s.title}</h2>
             </div>
-          ` : s.type === 'chapter' ? `
+          ` : s.type === 'chapter' || s.type === 'foundation' ? `
             <div class="chapter-title">
               <h1 class="chapter-main-title">${s.title}</h1>
             </div>
-          ` : `
+          ` : s.type === 'lesson-plan' ? `
             <h1 class="lesson-plan-title">${s.title}</h1>
+          ` : `
+            <h1 style="color: var(--primary); padding-bottom: 10px; margin-bottom: 1cm; font-family: 'Playfair Display', serif;">${s.title}</h1>
           `}
 
           <div class="section-content">
-            ${parseMarkdown(s.content)}
+            ${s.parsedContent}
           </div>
         </div>
         <div class="page-break"></div>
@@ -1183,48 +1283,162 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
 }
 
 app.get("/api/plans/batch-pdf", authenticateToken, async (req: any, res) => {
-  const { year } = req.query;
-  if (!year) return res.status(400).json({ error: "Ano não especificado" });
+  // Disable timeouts for this long-running request
+  req.setTimeout(0);
+  res.setTimeout(0);
+  
+  const { year: yearRaw } = req.query;
+  const year = Array.isArray(yearRaw) ? String(yearRaw[0]) : String(yearRaw || '');
+  
+  console.log(`Batch PDF request received for year: "${year}" for user ID: ${req.user.id}, Name: ${req.user.nome}`);
+  
+  if (!year || year === 'undefined') return res.status(400).json({ error: "Ano não especificado" });
 
   try {
-    const plans = db.prepare("SELECT * FROM plans WHERE user_id = ? AND ano_escolar = ? ORDER BY habilidade_codigo ASC").all(req.user.id, year);
-    if (plans.length === 0) return res.status(404).json({ error: "Nenhum plano encontrado para este ano" });
+    // Use LIKE for more flexible matching (e.g. "1º Ano" vs "1º ano")
+    // Handle "Outros" case where ano_escolar is null
+    let plans;
+    if (year === 'Outros') {
+      plans = db.prepare("SELECT * FROM plans WHERE user_id = ? AND (ano_escolar IS NULL OR ano_escolar = '' OR TRIM(ano_escolar) = '') ORDER BY habilidade_codigo ASC").all(req.user.id);
+    } else {
+      // Use LOWER and TRIM for maximum compatibility, plus partial LIKE as fallback
+      plans = db.prepare("SELECT * FROM plans WHERE user_id = ? AND (LOWER(TRIM(ano_escolar)) = LOWER(TRIM(?)) OR ano_escolar LIKE ?) ORDER BY habilidade_codigo ASC").all(req.user.id, year, `%${year}%`);
+    }
+    
+    console.log(`Found ${plans.length} plans for year "${year}"`);
+    
+    if (plans.length === 0) {
+      return res.status(404).json({ error: `Nenhum planejamento encontrado para "${year}".` });
+    }
+
+    const totalContentLength = plans.reduce((acc: number, p: any) => acc + (p.fase_zero?.length || 0) + (p.plano_01?.length || 0) + (p.plano_02?.length || 0) + (p.plano_03?.length || 0) + (p.plano_04?.length || 0) + (p.plano_05?.length || 0), 0);
+    console.log(`Total content length across all plans: ${totalContentLength} characters`);
 
     const settings = db.prepare("SELECT * FROM settings WHERE id = 1").get();
     const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
 
+    console.time(`PDF_Generation_${year}`);
     const html = await generateYearlyPlanHTML(plans, settings, user, year as string);
+    console.log(`HTML generated for yearly plan. Length: ${html.length} characters.`);
 
-    const browser = await puppeteer.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-      headless: true
-    });
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1200, height: 1600 });
-
+    let browser;
     try {
-      await page.setContent(html, { waitUntil: 'load', timeout: 60000 });
+      browser = await puppeteer.launch({
+        args: [
+          '--no-sandbox', 
+          '--disable-setuid-sandbox', 
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-zygote',
+          '--single-process',
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-default-apps',
+          '--disable-sync',
+          '--disable-translate',
+          '--metrics-recording-only',
+          '--safebrowsing-disable-auto-update',
+          '--js-flags="--max-old-space-size=2048"'
+        ],
+        headless: true,
+        timeout: 300000
+      });
+      const page = await browser.newPage();
+      
+      // Block external requests to speed up rendering and avoid timeouts
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const resourceType = request.resourceType();
+        if (['image', 'font', 'stylesheet'].includes(resourceType) && !request.url().startsWith('data:')) {
+          request.abort();
+        } else {
+          request.continue();
+        }
+      });
+      
+      // Log console messages from the page
+      page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+      page.on('pageerror', (err: any) => console.error('PAGE ERROR:', err.message || err));
+      page.on('requestfailed', request => {
+        console.log(`PAGE REQUEST FAILED: ${request.url()} - ${request.failure()?.errorText}`);
+      });
+
+      await page.setViewport({ width: 1200, height: 1600 });
+      await page.emulateMediaType('print');
+
+      console.log(`Generating batch PDF for year ${year}... Plans count: ${plans.length}`);
+      
+      // Use load for better reliability in this environment, increase timeout to 10 minutes
+      await page.setContent(html, { waitUntil: 'load', timeout: 600000 });
+      
+      // Wait for fonts to be ready
+      try {
+        await page.evaluateHandle('document.fonts.ready');
+      } catch (e) {
+        console.warn("Font loading wait failed or timed out, proceeding anyway...");
+      }
+
+      console.log(`Starting PDF export for year ${year}...`);
+      
+      // Send a small heartbeat to keep the connection alive if possible
+      // Note: This is tricky with PDF, so we just rely on faster generation
+      
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: { top: '2cm', bottom: '2cm', left: '2cm', right: '2cm' },
+        preferCSSPageSize: true,
+        margin: { top: '2.5cm', bottom: '2.5cm', left: '2cm', right: '2cm' },
         displayHeaderFooter: true,
-        headerTemplate: '<div style="font-size: 8px; width: 100%; text-align: center; color: #ccc; font-family: Arial; padding-top: 0.5cm;">CURRÍCULO ANUAL PROGRESSIVO – BNCC IA</div>',
-        footerTemplate: '<div style="font-size: 9px; width: 100%; display: flex; justify-content: space-between; padding: 0 2cm; color: #999; font-family: Arial;"><span>BNCC IA</span><span class="pageNumber"></span></div>',
-        timeout: 60000
+        headerTemplate: '<div style="font-size: 7px; width: 100%; text-align: center; color: #bbb; font-family: Arial; margin: 10px auto;">CURRÍCULO ANUAL PROGRESSIVO – BNCC IA</div>',
+        footerTemplate: `
+          <div style="font-size: 8px; width: 100%; display: flex; justify-content: space-between; padding: 0 20px; color: #999; font-family: Arial;">
+            <span>BNCC IA - ${year}</span>
+            <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
+          </div>
+        `,
+        timeout: 600000
       });
 
+      console.log(`PDF export finished for year ${year}. Size: ${pdf?.length || 0} bytes.`);
+
       await browser.close();
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename=Curriculo_Anual_${(year as string).replace(/\s/g, '_')}.pdf`);
-      res.send(pdf);
+      
+      if (!pdf || pdf.length === 0) {
+        console.error("Puppeteer returned an empty PDF result");
+        throw new Error("PDF gerado está vazio");
+      }
+
+      const pdfBuffer = Buffer.from(pdf);
+      console.log(`Batch PDF buffer created successfully. Size: ${pdfBuffer.length} bytes`);
+      
+      const safeYear = (year as string).replace(/[^a-z0-9]/gi, '_');
+      
+      res.status(200)
+         .attachment(`Curriculo_Anual_${safeYear}.pdf`)
+         .set({
+           'Cache-Control': 'no-cache, no-store, must-revalidate',
+           'Pragma': 'no-cache',
+           'Expires': '0'
+         })
+         .send(pdfBuffer);
+         
+      console.log(`Batch PDF sent to client for year: ${year}`);
     } catch (err) {
-      await browser.close();
-      throw err;
+      console.error("Puppeteer error during batch PDF generation:", err);
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (e) {}
+      }
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Erro técnico ao gerar o PDF. O documento pode ser muito grande ou houve falha no motor de impressão." });
+      }
     }
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Erro ao gerar PDF em lote" });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Erro ao gerar PDF em lote" });
+    }
   }
 });
 
@@ -1243,24 +1457,40 @@ app.get("/api/plans/:id/pdf", authenticateToken, async (req: any, res) => {
         '--no-sandbox', 
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-zygote',
+        '--disable-extensions',
+        '--disable-background-networking',
         '--font-render-hinting=none'
       ],
       headless: true
     });
     const page = await browser.newPage();
     
+    // Log console messages from the page
+    page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+    page.on('pageerror', (err: any) => console.error('PAGE ERROR:', err.message || err));
+
     // Set viewport for consistent rendering
     await page.setViewport({ width: 1200, height: 1600 });
+    await page.emulateMediaType('print');
 
     try {
+      console.log(`Generating individual PDF for plan ${req.params.id}...`);
       await page.setContent(html, { 
         waitUntil: 'load',
-        timeout: 60000 
+        timeout: 150000 
       });
+
+      // Wait for fonts
+      try {
+        await page.evaluateHandle('document.fonts.ready');
+      } catch (e) {}
       
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
+        preferCSSPageSize: true,
         margin: { top: '2.5cm', bottom: '2.5cm', left: '2.5cm', right: '2.5cm' },
         displayHeaderFooter: true,
         headerTemplate: `
@@ -1274,22 +1504,42 @@ app.get("/api/plans/:id/pdf", authenticateToken, async (req: any, res) => {
             <span class="pageNumber"></span>
           </div>
         `,
-        timeout: 60000
+        timeout: 150000
       });
 
       await browser.close();
 
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename=Planejamento_${plan.habilidade_codigo}.pdf`);
-      res.send(pdf);
+      if (!pdf || pdf.length === 0) {
+        throw new Error("PDF gerado está vazio");
+      }
+
+      const pdfBuffer = Buffer.from(pdf);
+      console.log(`Individual PDF buffer created. Size: ${pdfBuffer.length} bytes`);
+      const safeAno = (plan.ano_escolar || 'Ano').replace(/[^a-z0-9]/gi, '_');
+      const safeEixo = (plan.eixo || 'Eixo').replace(/[^a-z0-9]/gi, '_');
+      const filename = `Planejamento_${safeAno}_${safeEixo}_${plan.habilidade_codigo}.pdf`;
+
+      res.status(200)
+         .attachment(filename)
+         .set({
+           'Cache-Control': 'no-cache, no-store, must-revalidate',
+           'Pragma': 'no-cache',
+           'Expires': '0'
+         })
+         .send(pdfBuffer);
+      console.log(`Individual PDF sent to client for plan ${req.params.id}`);
     } catch (pageErr) {
       console.error("Puppeteer page error:", pageErr);
-      await browser.close();
-      throw pageErr;
+      if (browser) await browser.close();
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Erro ao processar o PDF individual." });
+      }
     }
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Erro ao gerar PDF" });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Erro ao gerar PDF" });
+    }
   }
 });
 
@@ -1320,12 +1570,22 @@ app.get("/api/plans/:id/docx", authenticateToken, async (req: any, res) => {
       pageNumber: true,
     });
 
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `attachment; filename=Relatorio_Avanca_Pariconha_Escola_2025.docx`);
-    res.send(docx);
+    const safeAno = (plan.ano_escolar || 'Ano').replace(/[^a-z0-9]/gi, '_');
+    const safeEixo = (plan.eixo || 'Eixo').replace(/[^a-z0-9]/gi, '_');
+    const filename = `Planejamento_${safeAno}_${safeEixo}_${plan.habilidade_codigo}.docx`;
+
+    const docxBuffer = Buffer.from(docx);
+    res.status(200)
+       .attachment(filename)
+       .set({
+         'Cache-Control': 'no-cache, no-store, must-revalidate'
+       })
+       .send(docxBuffer);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Erro ao gerar Word" });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Erro ao gerar Word" });
+    }
   }
 });
 
@@ -1361,7 +1621,7 @@ app.get("/api/admin/batch-export", authenticateToken, async (req: any, res) => {
     const zip = new JSZip();
     
     const browser = await puppeteer.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--no-zygote', '--single-process'],
       headless: true
     });
 
