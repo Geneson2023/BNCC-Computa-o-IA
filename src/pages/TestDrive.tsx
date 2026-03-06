@@ -12,7 +12,7 @@ import {
   ChevronLeft,
   Lock
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { bnccSkills, BNCCSkill } from '../data/bnccData';
 
 export default function TestDrive() {

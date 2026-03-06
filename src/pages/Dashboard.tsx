@@ -30,7 +30,7 @@ import {
   X,
   Loader2
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface PlanSummary {
   id: number;

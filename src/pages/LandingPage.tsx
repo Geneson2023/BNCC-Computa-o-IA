@@ -14,7 +14,7 @@ import {
   Users,
   Lock
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -123,9 +123,9 @@ export default function LandingPage() {
             <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-[3rem] blur opacity-20 group-hover:opacity-100 transition duration-1000 group-hover:duration-200"></div>
             <div className="relative bg-white rounded-[2.5rem] border border-zinc-200 shadow-2xl overflow-hidden p-4">
               <img 
-                src="https://picsum.photos/seed/dashboard/1600/900" 
-                alt="Plataforma BNCC IA" 
-                className="rounded-[1.5rem] w-full object-cover shadow-inner"
+                src="https://images.unsplash.com/photo-1509062522246-3755977927d7?q=80&w=1600&auto=format&fit=crop" 
+                alt="Educação e Tecnologia" 
+                className="rounded-[1.5rem] w-full object-cover shadow-inner h-[600px]"
                 referrerPolicy="no-referrer"
               />
             </div>

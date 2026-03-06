@@ -11,7 +11,7 @@ import {
   Lock,
   Download
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import Markdown from 'react-markdown';
 import { GoogleGenAI } from "@google/genai";
 

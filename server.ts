@@ -1474,23 +1474,33 @@ app.get("/api/admin/batch-export", authenticateToken, async (req: any, res) => {
   }
 });
 async function startServer() {
-  await seedUser();
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.join(process.cwd(), "dist")));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(process.cwd(), "dist", "index.html"));
-    });
-  }
+  console.log("Starting server initialization...");
+  try {
+    await seedUser();
+    console.log("User seeding completed.");
+    
+    if (process.env.NODE_ENV !== "production") {
+      console.log("Initializing Vite middleware...");
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+      console.log("Vite middleware initialized.");
+    } else {
+      console.log("Serving static files from dist...");
+      app.use(express.static(path.join(process.cwd(), "dist")));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(process.cwd(), "dist", "index.html"));
+      });
+    }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://0.0.0.0:${PORT}`);
+    });
+  } catch (error) {
+    console.error("FAILED TO START SERVER:", error);
+  }
 }
 
 startServer();
