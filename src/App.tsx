@@ -9,6 +9,7 @@ import LandingPage from './pages/LandingPage';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TestDrive from './pages/TestDrive';
 import GuestPlanGenerator from './pages/GuestPlanGenerator';
+import Documentation from './pages/Documentation';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
@@ -22,6 +23,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/privacidade" element={<PrivacyPolicy />} />
+          <Route path="/documentacao" element={<Documentation />} />
           <Route path="/test-drive" element={<TestDrive />} />
           <Route path="/plan-test/:id" element={<GuestPlanGenerator />} />
           <Route path="/login" element={<LoginPage />} />

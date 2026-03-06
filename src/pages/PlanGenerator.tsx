@@ -17,6 +17,7 @@ import {
   Settings,
   LogOut,
   LayoutDashboard,
+  GraduationCap,
   Menu,
   X
 } from 'lucide-react';
@@ -383,10 +384,11 @@ export default function PlanGenerator() {
               animate={{ scale: 1, opacity: 1 }}
               className="bg-indigo-600 p-2 rounded-xl text-white shadow-lg shadow-indigo-200"
             >
-              <BookOpen size={20} />
+              <GraduationCap size={20} />
             </motion.div>
-            <div className="hidden sm:block">
-              <h1 className="text-lg font-bold text-zinc-900 tracking-tight">BNCC IA</h1>
+            <div className="flex flex-col">
+              <h1 className="text-lg font-bold text-zinc-900 tracking-tight leading-none">Teacher Digital IA</h1>
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">BNCC Computação</span>
             </div>
           </div>
 
@@ -420,7 +422,7 @@ export default function PlanGenerator() {
 
             <div className="flex items-center gap-1">
               <button 
-                onClick={() => navigate('/')}
+                onClick={() => navigate('/dashboard')}
                 className="p-2.5 text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all active:scale-95" title="Dashboard">
                 <LayoutDashboard size={22} />
               </button>

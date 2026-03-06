@@ -51,7 +51,10 @@ export default function LandingPage() {
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
               <GraduationCap size={24} />
             </div>
-            <span className="text-xl font-black tracking-tighter">BNCC IA</span>
+            <div className="flex flex-col">
+              <span className="text-xl font-black tracking-tighter leading-none">Teacher Digital IA</span>
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">BNCC Computação</span>
+            </div>
           </div>
           
           <div className="hidden md:flex items-center gap-8 text-sm font-bold text-zinc-500">
@@ -454,10 +457,13 @@ export default function LandingPage() {
               <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
                 <GraduationCap size={20} />
               </div>
-              <span className="text-lg font-black tracking-tighter">BNCC IA</span>
+              <div className="flex flex-col">
+                <span className="text-lg font-black tracking-tighter leading-none">Teacher Digital IA</span>
+                <span className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">BNCC Computação</span>
+              </div>
             </div>
             <p className="text-zinc-500 text-sm max-w-sm font-medium leading-relaxed">
-              A ferramenta definitiva para o professor moderno. Alinhamento total com a BNCC e produtividade máxima.
+              A ferramenta definitiva para o professor moderno. Alinhamento total com a BNCC Computação e produtividade máxima.
             </p>
           </div>
           
@@ -466,6 +472,7 @@ export default function LandingPage() {
             <ul className="space-y-4 text-sm font-bold text-zinc-500">
               <li><a href="#" className="hover:text-indigo-600 transition-colors">Início</a></li>
               <li><a href="#funcionalidades" className="hover:text-indigo-600 transition-colors">Funcionalidades</a></li>
+              <li><Link to="/documentacao" className="hover:text-indigo-600 transition-colors">Documentação</Link></li>
               <li><Link to="/login" className="hover:text-indigo-600 transition-colors">Login</Link></li>
             </ul>
           </div>
@@ -474,13 +481,14 @@ export default function LandingPage() {
             <h4 className="font-black text-sm uppercase tracking-widest mb-6">Legal</h4>
             <ul className="space-y-4 text-sm font-bold text-zinc-500">
               <li><Link to="/privacidade" className="hover:text-indigo-600 transition-colors">Privacidade</Link></li>
+              <li><a href="https://wa.me/5582982302447" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-600 transition-colors">Suporte</a></li>
               <li><a href="#" className="hover:text-indigo-600 transition-colors">Termos de Uso</a></li>
             </ul>
           </div>
         </div>
         
         <div className="max-w-7xl mx-auto px-6 mt-20 pt-8 border-t border-zinc-100 text-center text-xs font-bold text-zinc-400 uppercase tracking-widest">
-          © {new Date().getFullYear()} BNCC IA. Todos os direitos reservados.
+          © {new Date().getFullYear()} Teacher Digital IA. Todos os direitos reservados.
         </div>
       </footer>
 

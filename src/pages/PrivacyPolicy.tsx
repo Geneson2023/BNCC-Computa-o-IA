@@ -13,7 +13,10 @@ export default function PrivacyPolicy() {
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
               <GraduationCap size={24} />
             </div>
-            <span className="text-xl font-black tracking-tighter">BNCC IA</span>
+            <div className="flex flex-col">
+              <span className="text-xl font-black tracking-tighter leading-none">Teacher Digital IA</span>
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">BNCC Computação</span>
+            </div>
           </Link>
           
           <Link 
@@ -72,7 +75,7 @@ export default function PrivacyPolicy() {
                   <h2 className="text-xl font-black tracking-tight">3. Uso de Inteligência Artificial</h2>
                 </div>
                 <p className="text-zinc-600 leading-relaxed font-medium">
-                  A BNCC IA utiliza modelos de linguagem avançados para auxiliar na criação de conteúdos. Os dados inseridos para geração de planos (como temas e habilidades) são processados de forma anônima para melhorar a precisão dos nossos algoritmos, nunca sendo compartilhados com terceiros para fins publicitários.
+                  O Teacher Digital IA utiliza modelos de linguagem avançados para auxiliar na criação de conteúdos. Os dados inseridos para geração de planos (como temas e habilidades) são processados de forma anônima para melhorar a precisão dos nossos algoritmos, nunca sendo compartilhados com terceiros para fins publicitários.
                 </p>
               </section>
 

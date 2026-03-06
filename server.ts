@@ -11,6 +11,7 @@ import crypto from "crypto";
 import { marked } from "marked";
 import JSZip from "jszip";
 import HTMLtoDOCX from 'html-to-docx';
+import fs from "fs";
 
 dotenv.config();
 
@@ -263,6 +264,67 @@ app.post("/api/guest/plans/update", (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao atualizar plano" });
+  }
+});
+
+// Project Download Route
+app.get("/api/admin/download-project", authenticateToken, async (req: any, res) => {
+  if (req.user.perfil !== 'Gestor') {
+    return res.status(403).json({ error: "Apenas gestores podem baixar o código do projeto" });
+  }
+
+  const zip = new JSZip();
+  
+  const foldersToInclude = ['src', 'public'];
+  const filesToInclude = ['server.ts', 'package.json', 'tsconfig.json', 'vite.config.ts', 'database.db', '.env.example', 'metadata.json'];
+
+  function addDirectoryToZip(dirPath: string, zipFolder: JSZip) {
+    const items = fs.readdirSync(dirPath);
+    for (const item of items) {
+      const fullPath = path.join(dirPath, item);
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        if (item === 'node_modules' || item === 'dist' || item === '.next' || item === '.git') continue;
+        const newZipFolder = zipFolder.folder(item);
+        if (newZipFolder) addDirectoryToZip(fullPath, newZipFolder);
+      } else {
+        const content = fs.readFileSync(fullPath);
+        zipFolder.file(item, content);
+      }
+    }
+  }
+
+  try {
+    // Add specific files
+    for (const file of filesToInclude) {
+      const fullPath = path.join(process.cwd(), file);
+      if (fs.existsSync(fullPath)) {
+        const content = fs.readFileSync(fullPath);
+        zip.file(file, content);
+      }
+    }
+
+    // Add folders
+    for (const folder of foldersToInclude) {
+      const fullPath = path.join(process.cwd(), folder);
+      if (fs.existsSync(fullPath)) {
+        const zipFolder = zip.folder(folder);
+        if (zipFolder) addDirectoryToZip(fullPath, zipFolder);
+      }
+    }
+
+    const content = await zip.generateAsync({ type: "nodebuffer" });
+    
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': 'attachment; filename=teacher-digital-ia-full.zip',
+      'Content-Length': content.length
+    });
+    
+    res.send(content);
+  } catch (err) {
+    console.error("Error generating project ZIP:", err);
+    res.status(500).json({ error: "Erro ao gerar arquivo ZIP do projeto" });
   }
 });
 
@@ -884,290 +946,60 @@ async function generateYearlyPlanHTML(plans: any[], settings: any, user: any, ye
       <meta charset="UTF-8">
       <title>Currículo Anual - ${year}</title>
       <style>
-        :root {
-          --primary: #1e1b4b;
-          --accent: #4f46e5;
-          --secondary: #f1f5f9;
-          --text: #0f172a;
-          --text-muted: #64748b;
-          --border: #e2e8f0;
-          --white: #ffffff;
-        }
-
-        @page {
-          size: A4;
-          margin: 25mm 20mm 25mm 20mm;
-        }
-
-        body { 
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-          line-height: 1.5; 
-          color: var(--text); 
-          margin: 0; 
-          padding: 0; 
-          font-size: 12pt; /* ABNT Standard */
-          background: white;
-          -webkit-print-color-adjust: exact;
-        }
-
-        @media print {
-          @page {
-            margin: 25mm 20mm 25mm 20mm;
-          }
-          .no-print { display: none !important; }
-          body { background: white !important; }
-          .content-page { padding: 0 !important; margin-bottom: 2cm !important; }
-        }
-
+        :root { --primary: #1e1b4b; --accent: #4f46e5; --secondary: #f1f5f9; --text: #0f172a; --text-muted: #64748b; --border: #e2e8f0; --white: #ffffff; }
+        @page { size: A4; margin: 25mm 20mm; }
+        body { font-family: -apple-system, sans-serif; line-height: 1.5; color: var(--text); margin: 0; padding: 0; font-size: 12pt; background: white; -webkit-print-color-adjust: exact; }
+        @media print { .no-print { display: none !important; } .content-page { padding: 0 !important; margin-bottom: 2cm !important; } }
         .page-break { page-break-after: always; clear: both; }
-        
-        /* CAPA INSTITUCIONAL */
-        .capa { 
-          height: 29.7cm;
-          width: 21cm;
-          display: flex; 
-          flex-direction: column; 
-          align-items: center; 
-          justify-content: space-between; 
-          text-align: center; 
-          padding: 2cm 0;
-          position: relative;
-          background: var(--white);
-          box-sizing: border-box;
-        }
-        
-        .capa-border {
-          position: absolute;
-          top: 1cm;
-          left: 1cm;
-          right: 1cm;
-          bottom: 1cm;
-          border: 1px solid var(--border);
-          pointer-events: none;
-        }
-
-        .capa-header { 
-          margin-top: 1cm; 
-          width: 80%;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-        }
-        
-        .capa-logos { 
-          display: flex; 
-          justify-content: center; 
-          align-items: center;
-          gap: 40px; 
-          margin-bottom: 0.8cm; 
-          height: 80px;
-        }
+        .capa { height: 29.7cm; width: 21cm; display: flex; flex-direction: column; align-items: center; justify-content: space-between; text-align: center; padding: 2cm 0; position: relative; background: var(--white); box-sizing: border-box; }
+        .capa-border { position: absolute; top: 1cm; left: 1cm; right: 1cm; bottom: 1cm; border: 1px solid var(--border); pointer-events: none; }
+        .capa-header { margin-top: 1cm; width: 80%; display: flex; flex-direction: column; align-items: center; }
+        .capa-logos { display: flex; justify-content: center; align-items: center; gap: 40px; margin-bottom: 0.8cm; height: 80px; }
         .capa-logos img { height: 70px; max-width: 220px; object-fit: contain; }
-        
-        .inst-info {
-          border-top: 1px solid var(--border);
-          padding-top: 0.5cm;
-          width: 100%;
-        }
+        .inst-info { border-top: 1px solid var(--border); padding-top: 0.5cm; width: 100%; }
         .inst-info p { margin: 2px 0; font-size: 10pt; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
-
         .capa-main { flex: 1; display: flex; flex-direction: column; justify-content: center; width: 85%; }
-        .capa-title { 
-          font-family: 'Playfair Display', serif;
-          font-size: 34pt; 
-          color: var(--primary); 
-          margin: 0; 
-          line-height: 1.1;
-          font-weight: 900;
-        }
-        .capa-subtitle { 
-          font-size: 16pt; 
-          color: var(--accent); 
-          margin-top: 15px;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 3px;
-        }
-        .capa-divider {
-          width: 100px;
-          height: 4px;
-          background: var(--accent);
-          margin: 1.5cm auto;
-        }
-        .capa-desc {
-          font-size: 13pt;
-          color: var(--text-muted);
-          max-width: 80%;
-          margin: 0 auto;
-          line-height: 1.5;
-        }
-
-        .capa-footer { 
-          width: 80%;
-          margin-bottom: 1.5cm;
-          text-align: left;
-          background: var(--secondary);
-          padding: 1cm;
-          border-radius: 12px;
-        }
+        .capa-title { font-size: 34pt; color: var(--primary); margin: 0; line-height: 1.1; font-weight: 900; }
+        .capa-subtitle { font-size: 16pt; color: var(--accent); margin-top: 15px; font-weight: 600; text-transform: uppercase; letter-spacing: 3px; }
+        .capa-divider { width: 100px; height: 4px; background: var(--accent); margin: 1.5cm auto; }
+        .capa-desc { font-size: 13pt; color: var(--text-muted); max-width: 80%; margin: 0 auto; line-height: 1.5; }
+        .capa-footer { width: 80%; margin-bottom: 1.5cm; text-align: left; background: var(--secondary); padding: 1cm; border-radius: 12px; }
         .capa-footer p { margin: 8px 0; font-size: 10.5pt; color: var(--text); border-bottom: 1px solid rgba(0,0,0,0.05); padding-bottom: 4px; }
         .capa-footer strong { color: var(--primary); width: 140px; display: inline-block; }
-
-        /* SUMÁRIO */
         .toc { padding: 3cm 2.5cm; min-height: 29.7cm; box-sizing: border-box; }
-        .toc h2 { 
-          font-family: 'Playfair Display', serif;
-          font-size: 26pt; 
-          color: var(--primary); 
-          margin-bottom: 2cm;
-          text-align: center;
-        }
+        .toc h2 { font-size: 26pt; color: var(--primary); margin-bottom: 2cm; text-align: center; }
         .toc-list { list-style: none; padding: 0; }
-        .toc-item { 
-          display: flex; 
-          align-items: baseline; 
-          margin-bottom: 18px;
-          font-size: 12pt;
-        }
+        .toc-item { display: flex; align-items: baseline; margin-bottom: 18px; font-size: 12pt; }
         .toc-title { flex-shrink: 0; font-weight: 600; color: var(--text); }
         .toc-dots { flex-grow: 1; border-bottom: 1px dotted var(--border); margin: 0 10px; }
         .toc-page { flex-shrink: 0; font-weight: 700; color: var(--primary); }
-
-        /* INTERNAL PAGES */
-        .content-page { 
-          padding: 2.5cm; 
-          min-height: 29.7cm;
-          box-sizing: border-box;
-          position: relative;
-        }
-        .internal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          border-bottom: 1px solid var(--border);
-          padding-bottom: 10px;
-          margin-bottom: 1.5cm;
-          font-size: 8.5pt;
-          color: var(--text-muted);
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-        }
-
-        .chapter-title {
-          margin-bottom: 1cm;
-          padding: 0.8cm;
-          background: var(--secondary);
-          border-radius: 12px;
-        }
-        .chapter-label {
-          font-size: 12pt;
-          color: var(--accent);
-          text-transform: uppercase;
-          letter-spacing: 3px;
-          display: block;
-          margin-bottom: 10px;
-          font-weight: 700;
-        }
-        .chapter-main-title {
-          font-family: 'Playfair Display', serif;
-          font-size: 24pt;
-          color: var(--primary);
-          margin: 0;
-          line-height: 1.2;
-        }
-
-        .skill-header-box {
-          background: var(--primary);
-          color: white;
-          padding: 1cm;
-          border-radius: 12px;
-          margin-bottom: 1cm;
-        }
-        .skill-header-box h2 { margin: 0; font-size: 20pt; font-family: 'Playfair Display', serif; }
-
-        .lesson-plan-title {
-          font-size: 18pt;
-          font-weight: 900;
-          color: var(--primary);
-          margin-bottom: 0.8cm;
-          text-transform: uppercase;
-          display: inline-block;
-          padding-bottom: 5px;
-        }
-
-        .section-content {
-          text-align: justify;
-          line-height: 1.5;
-          font-size: 12pt;
-        }
-        .section-content p {
-          margin-bottom: 1em;
-        }
+        .content-page { padding: 2.5cm; min-height: 29.7cm; box-sizing: border-box; position: relative; }
+        .internal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 1.5cm; font-size: 8.5pt; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+        .chapter-title { margin-bottom: 1cm; padding: 0.8cm; background: var(--secondary); border-radius: 12px; }
+        .chapter-main-title { font-size: 24pt; color: var(--primary); margin: 0; line-height: 1.2; }
+        .skill-header-box { background: var(--primary); color: white; padding: 1cm; border-radius: 12px; margin-bottom: 1cm; }
+        .skill-header-box h2 { margin: 0; font-size: 20pt; }
+        .lesson-plan-title { font-size: 18pt; font-weight: 900; color: var(--primary); margin-bottom: 0.8cm; text-transform: uppercase; display: inline-block; padding-bottom: 5px; }
+        .section-content { text-align: justify; line-height: 1.5; font-size: 12pt; }
+        .section-content p { margin-bottom: 1em; }
         .section-content h1 { font-size: 14pt; color: var(--primary); margin-top: 1cm; margin-bottom: 0.4cm; font-weight: 700; }
-        .section-content h2 { font-size: 13pt; color: var(--primary); margin-top: 1cm; margin-bottom: 0.4cm; font-weight: 700; padding-left: 0; }
+        .section-content h2 { font-size: 13pt; color: var(--primary); margin-top: 1cm; margin-bottom: 0.4cm; font-weight: 700; }
         .section-content h3 { font-size: 12pt; color: var(--accent); text-transform: uppercase; margin-top: 1cm; margin-bottom: 0.4cm; font-weight: 700; }
-        
-        .section-content ul, .section-content ol {
-          margin-bottom: 1em;
-          padding-left: 1.2cm;
-        }
-        .section-content li {
-          margin-bottom: 0.4em;
-        }
-
-        /* TABLES */
-        table { 
-          width: 100%; 
-          border-collapse: collapse; 
-          margin: 1cm 0; 
-          font-size: 9.5pt;
-          background: white;
-        }
-        th { 
-          background-color: var(--primary); 
-          color: white;
-          border: 1px solid var(--primary); 
-          padding: 12px; 
-          text-align: left; 
-          text-transform: uppercase;
-          font-weight: 700;
-        }
+        .section-content ul, .section-content ol { margin-bottom: 1em; padding-left: 1.2cm; }
+        .section-content li { margin-bottom: 0.4em; }
+        table { width: 100%; border-collapse: collapse; margin: 1cm 0; font-size: 9.5pt; background: white; }
+        th { background-color: var(--primary); color: white; border: 1px solid var(--primary); padding: 12px; text-align: left; text-transform: uppercase; font-weight: 700; }
         td { border: 1px solid var(--border); padding: 10px; vertical-align: top; }
         tr:nth-child(even) { background-color: var(--secondary); }
-        
         img { max-width: 100%; height: auto; border-radius: 8px; }
-
-        /* FINAL PAGE */
-        .final-page {
-          min-height: 29.7cm;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          align-items: center;
-          text-align: center;
-          padding: 3cm;
-          box-sizing: border-box;
-        }
-        .final-title { font-family: 'Playfair Display', serif; font-size: 26pt; color: var(--primary); margin-bottom: 1.5cm; }
+        .final-page { min-height: 29.7cm; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 3cm; box-sizing: border-box; }
+        .final-title { font-size: 26pt; color: var(--primary); margin-bottom: 1.5cm; }
         .final-content { font-size: 12pt; line-height: 1.8; margin-bottom: 3cm; color: var(--text-muted); }
-        
         .signature-area { width: 350px; display: flex; flex-direction: column; align-items: center; }
         .signature-line { width: 100%; border-top: 2px solid var(--primary); margin-bottom: 10px; }
         .signature-name { font-weight: 700; font-size: 12pt; color: var(--primary); margin: 0; }
         .signature-label { font-size: 10pt; color: var(--text-muted); margin: 0; text-transform: uppercase; letter-spacing: 1px; }
-        
-        .validation-footer {
-          margin-top: auto;
-          width: 100%;
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-end;
-          font-size: 8.5pt;
-          color: var(--text-muted);
-          border-top: 1px solid var(--border);
-          padding-top: 25px;
-        }
+        .validation-footer { margin-top: auto; width: 100%; display: flex; justify-content: space-between; align-items: flex-end; font-size: 8.5pt; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 25px; }
       </style>
     </head>
     <body>
@@ -1318,7 +1150,7 @@ app.get("/api/plans/batch-pdf", authenticateToken, async (req: any, res) => {
     const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
 
     console.time(`PDF_Generation_${year}`);
-    const html = await generateYearlyPlanHTML(plans, settings, user, year as string);
+    let html: string | null = await generateYearlyPlanHTML(plans, settings, user, year as string);
     console.log(`HTML generated for yearly plan. Length: ${html.length} characters.`);
 
     let browser;
@@ -1338,61 +1170,46 @@ app.get("/api/plans/batch-pdf", authenticateToken, async (req: any, res) => {
           '--disable-translate',
           '--metrics-recording-only',
           '--safebrowsing-disable-auto-update',
-          '--js-flags="--max-old-space-size=2048"'
+          '--js-flags="--max-old-space-size=4096"'
         ],
         headless: true,
-        timeout: 300000
+        timeout: 600000
       });
       const page = await browser.newPage();
       
-      // Block external requests to speed up rendering and avoid timeouts
+      // Block ALL external requests to maximize speed and minimize memory
       await page.setRequestInterception(true);
       page.on('request', (request) => {
-        const resourceType = request.resourceType();
-        if (['image', 'font', 'stylesheet'].includes(resourceType) && !request.url().startsWith('data:')) {
-          request.abort();
-        } else {
-          request.continue();
-        }
+        request.abort();
       });
       
       // Log console messages from the page
       page.on('console', msg => console.log('PAGE LOG:', msg.text()));
       page.on('pageerror', (err: any) => console.error('PAGE ERROR:', err.message || err));
-      page.on('requestfailed', request => {
-        console.log(`PAGE REQUEST FAILED: ${request.url()} - ${request.failure()?.errorText}`);
-      });
 
       await page.setViewport({ width: 1200, height: 1600 });
       await page.emulateMediaType('print');
 
       console.log(`Generating batch PDF for year ${year}... Plans count: ${plans.length}`);
       
-      // Use load for better reliability in this environment, increase timeout to 10 minutes
-      await page.setContent(html, { waitUntil: 'load', timeout: 600000 });
+      // Use setContent with a longer timeout and 'domcontentloaded' for faster start
+      await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 600000 });
       
-      // Wait for fonts to be ready
-      try {
-        await page.evaluateHandle('document.fonts.ready');
-      } catch (e) {
-        console.warn("Font loading wait failed or timed out, proceeding anyway...");
-      }
+      // Clear HTML string from memory as it's now in Puppeteer
+      html = null;
 
       console.log(`Starting PDF export for year ${year}...`);
       
-      // Send a small heartbeat to keep the connection alive if possible
-      // Note: This is tricky with PDF, so we just rely on faster generation
-      
-      const pdf = await page.pdf({
+      let pdf: Uint8Array | null = await page.pdf({
         format: 'A4',
         printBackground: true,
         preferCSSPageSize: true,
         margin: { top: '2.5cm', bottom: '2.5cm', left: '2cm', right: '2cm' },
         displayHeaderFooter: true,
-        headerTemplate: '<div style="font-size: 7px; width: 100%; text-align: center; color: #bbb; font-family: Arial; margin: 10px auto;">CURRÍCULO ANUAL PROGRESSIVO – BNCC IA</div>',
+        headerTemplate: '<div style="font-size: 7px; width: 100%; text-align: center; color: #bbb; font-family: Arial; margin: 10px auto;">CURRÍCULO ANUAL PROGRESSIVO – TEACHER DIGITAL IA</div>',
         footerTemplate: `
           <div style="font-size: 8px; width: 100%; display: flex; justify-content: space-between; padding: 0 20px; color: #999; font-family: Arial;">
-            <span>BNCC IA - ${year}</span>
+            <span>Teacher Digital IA - ${year}</span>
             <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
           </div>
         `,
@@ -1402,6 +1219,7 @@ app.get("/api/plans/batch-pdf", authenticateToken, async (req: any, res) => {
       console.log(`PDF export finished for year ${year}. Size: ${pdf?.length || 0} bytes.`);
 
       await browser.close();
+      browser = null;
       
       if (!pdf || pdf.length === 0) {
         console.error("Puppeteer returned an empty PDF result");
@@ -1409,6 +1227,7 @@ app.get("/api/plans/batch-pdf", authenticateToken, async (req: any, res) => {
       }
 
       const pdfBuffer = Buffer.from(pdf);
+      pdf = null; // Clear Uint8Array
       console.log(`Batch PDF buffer created successfully. Size: ${pdfBuffer.length} bytes`);
       
       const safeYear = (year as string).replace(/[^a-z0-9]/gi, '_');
@@ -1416,6 +1235,8 @@ app.get("/api/plans/batch-pdf", authenticateToken, async (req: any, res) => {
       res.status(200)
          .attachment(`Curriculo_Anual_${safeYear}.pdf`)
          .set({
+           'Content-Type': 'application/pdf',
+           'Content-Length': pdfBuffer.length,
            'Cache-Control': 'no-cache, no-store, must-revalidate',
            'Pragma': 'no-cache',
            'Expires': '0'
@@ -1427,11 +1248,11 @@ app.get("/api/plans/batch-pdf", authenticateToken, async (req: any, res) => {
       console.error("Puppeteer error during batch PDF generation:", err);
       if (browser) {
         try {
-          await browser.close();
+          await (browser as any).close();
         } catch (e) {}
       }
       if (!res.headersSent) {
-        res.status(500).json({ error: "Erro técnico ao gerar o PDF. O documento pode ser muito grande ou houve falha no motor de impressão." });
+        res.status(500).json({ error: "Erro técnico ao gerar o PDF. O documento pode ser muito grande ou houve falha no motor de impressão. Tente gerar por partes se possível." });
       }
     }
   } catch (err) {

@@ -22,7 +22,8 @@ import {
   FileArchive,
   Save,
   Key,
-  ExternalLink
+  ExternalLink,
+  Layout
 } from 'lucide-react';
 
 declare global {
@@ -64,6 +65,7 @@ export default function SettingsPage() {
   const [setSuccess, setSetSuccess] = useState(false);
   const [setError, setSetError] = useState('');
   const [batchLoading, setBatchLoading] = useState(false);
+  const [projectLoading, setProjectLoading] = useState(false);
   const [hasCustomKey, setHasCustomKey] = useState(false);
 
   useEffect(() => {
@@ -172,6 +174,34 @@ export default function SettingsPage() {
       console.error('Erro na exportação em lote');
     } finally {
       setBatchLoading(false);
+    }
+  };
+
+  const handleDownloadProject = async () => {
+    setProjectLoading(true);
+    try {
+      const response = await fetch('/api/admin/download-project', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'teacher-digital-ia-full.zip';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Erro ao baixar projeto');
+      }
+    } catch (err) {
+      console.error('Erro ao baixar projeto:', err);
+      alert('Erro de conexão ao tentar baixar o projeto');
+    } finally {
+      setProjectLoading(false);
     }
   };
 
@@ -360,8 +390,8 @@ export default function SettingsPage() {
           </div>
 
           {/* Batch Export */}
-          <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 p-8 flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-4 text-center sm:text-left">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 p-8 flex flex-col items-center justify-between gap-6 text-center">
               <div className="bg-amber-50 p-4 rounded-2xl text-amber-600">
                 <FileArchive size={32} />
               </div>
@@ -369,15 +399,33 @@ export default function SettingsPage() {
                 <h3 className="text-lg font-bold text-zinc-900">Exportação em Lote</h3>
                 <p className="text-sm text-zinc-500">Gere um arquivo ZIP com todos os planejamentos da plataforma.</p>
               </div>
+              <button 
+                onClick={handleBatchExport}
+                disabled={batchLoading}
+                className="w-full bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+              >
+                {batchLoading ? <Loader2 className="animate-spin" size={20} /> : <Download size={20} />}
+                Baixar Tudo (ZIP)
+              </button>
             </div>
-            <button 
-              onClick={handleBatchExport}
-              disabled={batchLoading}
-              className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50"
-            >
-              {batchLoading ? <Loader2 className="animate-spin" size={20} /> : <Download size={20} />}
-              Baixar Tudo (ZIP)
-            </button>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 p-8 flex flex-col items-center justify-between gap-6 text-center">
+              <div className="bg-indigo-50 p-4 rounded-2xl text-indigo-600">
+                <Layout size={32} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-zinc-900">Código do Projeto</h3>
+                <p className="text-sm text-zinc-500">Baixe o código-fonte completo e o banco de dados do sistema.</p>
+              </div>
+              <button 
+                onClick={handleDownloadProject}
+                disabled={projectLoading}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+              >
+                {projectLoading ? <Loader2 className="animate-spin" size={20} /> : <FileArchive size={20} />}
+                Baixar Projeto (.ZIP)
+              </button>
+            </div>
           </div>
 
           {/* API Key Selection */}

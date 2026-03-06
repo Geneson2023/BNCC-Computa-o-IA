@@ -59,6 +59,10 @@ export default function Dashboard() {
   const years = Array.from(new Set(bnccSkills.map(s => s.ano)));
   const axes = Array.from(new Set(bnccSkills.map(s => s.eixo)));
 
+  const existingPlansForSkill = selectedSkill 
+    ? plans.filter(p => p.habilidade_codigo === selectedSkill.codigo)
+    : [];
+
   const filteredSkills = bnccSkills.filter(s => {
     const yearMatch = !selectedYear || s.ano === selectedYear;
     const axisMatch = !selectedAxis || s.eixo === selectedAxis;
@@ -210,9 +214,12 @@ export default function Dashboard() {
             >
               <GraduationCap size={20} />
             </motion.div>
-            <h1 className="text-lg font-bold text-zinc-900 tracking-tight">
-              BNCC IA
-            </h1>
+            <div className="flex flex-col">
+              <h1 className="text-lg font-bold text-zinc-900 tracking-tight leading-none">
+                Teacher Digital IA
+              </h1>
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">BNCC Computação</span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -381,7 +388,51 @@ export default function Dashboard() {
                       <p className="text-sm font-bold text-zinc-800 leading-relaxed">{selectedSkill.codigo}: {selectedSkill.descricao}</p>
                     </div>
                     
-                    <ul className="space-y-3">
+                    {existingPlansForSkill.length > 0 && (
+                      <div className="space-y-3">
+                        <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Planos Existentes ({existingPlansForSkill.length})</p>
+                        <div className="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                          {existingPlansForSkill.map(p => (
+                            <button
+                              key={p.id}
+                              onClick={() => navigate(`/plan/${p.id}`)}
+                              className="w-full text-left p-3 rounded-xl border border-indigo-100 bg-indigo-50/30 hover:bg-indigo-50 transition-all group flex items-center justify-between"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-2 h-2 rounded-full ${p.concluido ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
+                                <span className="text-xs font-bold text-zinc-700">Plano #{p.id}</span>
+                              </div>
+                              <ChevronRight size={14} className="text-indigo-400 group-hover:translate-x-1 transition-transform" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                      <button
+                        onClick={handleStartNew}
+                        disabled={loading}
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-3 shadow-xl shadow-indigo-100 active:scale-[0.98] disabled:opacity-50"
+                      >
+                        {loading ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <>
+                            {existingPlansForSkill.length > 0 ? 'INICIAR NOVO PLANO' : 'INICIAR AGORA'}
+                            <ArrowRight size={20} />
+                          </>
+                        )}
+                      </button>
+                      
+                      {existingPlansForSkill.length > 0 && (
+                        <p className="text-[10px] text-center font-bold text-zinc-400">
+                          Ou selecione um plano acima para continuar.
+                        </p>
+                      )}
+                    </div>
+
+                    <ul className="space-y-3 pt-4 border-t border-zinc-100">
                       {[
                         'Análise pedagógica completa',
                         '5 planos de aula sequenciais',
@@ -393,21 +444,6 @@ export default function Dashboard() {
                         </li>
                       ))}
                     </ul>
-
-                    <button
-                      onClick={handleStartNew}
-                      disabled={loading}
-                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-3 shadow-xl shadow-indigo-100 active:scale-[0.98] disabled:opacity-50"
-                    >
-                      {loading ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <>
-                          INICIAR AGORA
-                          <ArrowRight size={20} />
-                        </>
-                      )}
-                    </button>
                   </motion.div>
                 ) : (
                   <div className="text-center py-12">
@@ -536,7 +572,7 @@ export default function Dashboard() {
                                     throw new Error(errorData.error || 'O servidor retornou um erro inesperado.');
                                   } catch (e: any) {
                                     if (e.message && e.message.includes('Unexpected end of JSON input')) {
-                                      throw new Error('O servidor encerrou a conexão inesperadamente. O documento pode ser muito grande.');
+                                      throw new Error('O servidor encerrou a conexão inesperadamente. O documento pode ser muito grande para ser gerado de uma só vez.');
                                     }
                                     throw e;
                                   }
@@ -545,9 +581,13 @@ export default function Dashboard() {
 
                               let blob;
                               try {
+                                // For large files, we might want to track progress or handle stream errors
                                 blob = await response.blob();
-                              } catch (blobErr) {
+                              } catch (blobErr: any) {
                                 console.error('Failed to parse blob:', blobErr);
+                                if (blobErr.message && (blobErr.message.includes('terminated') || blobErr.message.includes('aborted'))) {
+                                  throw new Error('A conexão foi interrompida durante o download. O arquivo pode ser muito grande para sua conexão atual.');
+                                }
                                 throw new Error('Falha ao processar os dados do PDF recebidos do servidor.');
                               }
                               
@@ -910,14 +950,20 @@ export default function Dashboard() {
 
       <footer className="bg-white border-t border-zinc-200 py-10 mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex items-center gap-2 text-zinc-400">
-            <GraduationCap size={24} />
-            <span className="font-bold text-lg tracking-tight">BNCC IA</span>
+          <div className="flex items-center gap-3 text-zinc-400">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
+              <GraduationCap size={20} />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-lg font-black tracking-tighter leading-none text-zinc-900">Teacher Digital IA</span>
+              <span className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">BNCC Computação</span>
+            </div>
           </div>
-          <p className="text-zinc-400 text-xs font-medium">© {new Date().getFullYear()} – Sistema Inteligente de Planejamento.</p>
+          <p className="text-zinc-400 text-xs font-medium">© {new Date().getFullYear()} – Teacher Digital IA. Alinhado à BNCC Computação.</p>
           <div className="flex gap-4">
-            <a href="#" className="text-zinc-400 hover:text-indigo-600 transition-colors text-xs font-bold">Suporte</a>
-            <a href="#" className="text-zinc-400 hover:text-indigo-600 transition-colors text-xs font-bold">Privacidade</a>
+            <a href="https://wa.me/5582982302447" target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-indigo-600 transition-colors text-xs font-bold">Suporte</a>
+            <Link to="/privacidade" className="text-zinc-400 hover:text-indigo-600 transition-colors text-xs font-bold">Privacidade</Link>
+            <Link to="/documentacao" className="text-zinc-400 hover:text-indigo-600 transition-colors text-xs font-bold">Documentação</Link>
           </div>
         </div>
       </footer>

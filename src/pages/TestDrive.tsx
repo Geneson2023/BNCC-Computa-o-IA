@@ -83,7 +83,10 @@ export default function TestDrive() {
             <div className="bg-indigo-600 p-2 rounded-xl text-white shadow-lg shadow-indigo-100">
               <GraduationCap size={20} />
             </div>
-            <h1 className="text-lg font-bold text-zinc-900 tracking-tight">BNCC IA <span className="text-zinc-400 font-medium ml-2">| Teste</span></h1>
+            <div className="flex flex-col">
+              <h1 className="text-lg font-bold text-zinc-900 tracking-tight leading-none">Teacher Digital IA</h1>
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">BNCC Computação</span>
+            </div>
           </Link>
           <Link to="/register" className="text-sm font-bold text-indigo-600 hover:bg-indigo-50 px-4 py-2 rounded-xl transition-all">
             Criar Conta Grátis

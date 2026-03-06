@@ -125,7 +125,10 @@ export default function GuestPlanGenerator() {
               <div className="bg-indigo-600 p-2 rounded-xl text-white">
                 <GraduationCap size={20} />
               </div>
-              <h1 className="text-lg font-bold text-zinc-900 tracking-tight">BNCC IA <span className="text-zinc-400 font-medium ml-2">| Teste</span></h1>
+              <div className="flex flex-col">
+                <h1 className="text-lg font-bold text-zinc-900 tracking-tight leading-none">Teacher Digital IA</h1>
+                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">BNCC Computação</span>
+              </div>
             </div>
           </div>
           <Link to="/register" className="bg-indigo-600 text-white px-6 py-2.5 rounded-full text-sm font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100">
